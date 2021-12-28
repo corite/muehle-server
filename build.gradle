@@ -10,15 +10,24 @@ version '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
+    maven { url 'https://jitpack.io' }
 }
 
 dependencies {
     implementation group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.6'
     implementation group: 'com.google.guava', name: 'guava', version: '31.0.1-jre'
+    implementation 'com.github.corite:muehle-shared:main-SNAPSHOT'
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
 }
 
 test {
     useJUnitPlatform()
+}
+
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
 }
