@@ -14,6 +14,7 @@ public class Main {
     private static final  List<Game> GAMES = Collections.synchronizedList(new ArrayList<>());
     private static final List<Player> PLAYERS = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, Integer> NAME_COUNT = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<Player,Player> REQUESTED_PAIRS = Collections.synchronizedMap(new HashMap<>());
 
     public static void main(String[] args) throws IOException {
 
@@ -26,7 +27,6 @@ public class Main {
                 logger.debug("A new client is connected");
                 Thread handler = new Thread(new ClientHandler(currentSocket));
                 handler.start();
-                //give clientHandler game array
             } catch (IOException e) {
                 logger.error("failed to accept client socket",e);
             }
@@ -46,5 +46,7 @@ public class Main {
     public static Map<String, Integer> getNameCount() {
         return NAME_COUNT;
     }
-
+    public static Map<Player, Player> getRequestedPairs() {
+        return REQUESTED_PAIRS;
+    }
 }

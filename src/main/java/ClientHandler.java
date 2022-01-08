@@ -1,4 +1,5 @@
 import logic.entities.Game;
+import logic.entities.GamePhase;
 import logic.entities.Player;
 import logic.entities.StoneState;
 import logic.exceptions.GameException;
@@ -15,9 +16,9 @@ import java.util.ArrayList;
 import java.util.stream.Collectors;
 
 public class ClientHandler implements Runnable{
-    Socket clientSocket;
-    Game game;
-    Logger logger = LoggerFactory.getLogger(getClass());
+    private final Socket clientSocket;
+    private Game game;
+    private final Logger logger = LoggerFactory.getLogger(getClass());
     public ClientHandler(Socket clientSocket) {
         this.clientSocket = clientSocket;
     }
@@ -25,10 +26,6 @@ public class ClientHandler implements Runnable{
 
     public Socket getClientSocket() {
         return clientSocket;
-    }
-
-    public void setClientSocket(Socket clientSocket) {
-        this.clientSocket = clientSocket;
     }
 
     public Game getGame() {
@@ -46,11 +43,12 @@ public class ClientHandler implements Runnable{
                 ObjectInputStream ois = new ObjectInputStream(getClientSocket().getInputStream());
 
                 Object inputObject = ois.readObject();
-                //todo: implement connect action
                 if (inputObject instanceof InitialAction) {
                     handleInitialAction((InitialAction) inputObject);
                 } else if (inputObject instanceof ListPlayersAction) {
                     handleListPlayersAction((ListPlayersAction) inputObject);
+                } else if (inputObject instanceof ConnectAction) {
+                    handleConnectAction((ConnectAction) inputObject);
                 } else if (inputObject instanceof GameAction) {
                     handleGameAction((GameAction) inputObject);
                 } else  if (inputObject instanceof ReconnectAction) {
@@ -74,7 +72,7 @@ public class ClientHandler implements Runnable{
 
     private void handleGameAction(GameAction gameAction) {
         logger.debug("handling game action");
-        Player self = gameAction.getPlayer();
+        Player self = getPlayerReference(gameAction.getPlayer());
 
         if (getGame() ==null ) {//game is not initialized, should only happen once
             synchronized (Main.class) {
@@ -90,39 +88,32 @@ public class ClientHandler implements Runnable{
             }
         }
         synchronized (this.getGame()) {
+            String message = "";
             switch (gameAction.getType()) {
                 case PLACE -> {
-                    String message = "";
                     try {
                         getGame().placeStone(self,gameAction.getPlaceOrTakeCoordinate());
-
                     } catch (GameException e) {
-                        message = handleGameException(e);
-                    } finally {
-                        GameResponse gameResponse = new GameResponse(message,getGame().getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(getGame().getField().nodes()));
+                        message = getGameExceptionMessage(e);
                     }
                 }
                 case MOVE -> {
-                    String message = "";
                     try {
                         getGame().moveStone(self,gameAction.getFrom(),gameAction.getTo());
                     } catch (GameException e) {
-                        message = handleGameException(e);
-                    } finally {
-                        GameResponse gameResponse = new GameResponse(message,getGame().getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(getGame().getField().nodes()));
+                        message = getGameExceptionMessage(e);
                     }
                 }
                 case TAKE -> {
-                    String message = "";
                     try {
                         getGame().takeStone(self,gameAction.getPlaceOrTakeCoordinate());
                     } catch (GameException e) {
-                        message = handleGameException(e);
-                    } finally {
-                        GameResponse gameResponse = new GameResponse(message,getGame().getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(getGame().getField().nodes()));
+                        message = getGameExceptionMessage(e);
                     }
                 }
             }
+            GameResponse gameResponse = new GameResponse(message,getGame().getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(getGame().getField().nodes()));
+            sendGameResponseToBothPlayers(gameResponse,self);
         }
     }
 
@@ -144,7 +135,7 @@ public class ClientHandler implements Runnable{
     private void handleListPlayersAction(ListPlayersAction listPlayersAction) {
         synchronized (Main.class) {
             logger.debug("handling listPlayers action");
-            Player self = listPlayersAction.getSelf();
+            Player self = getPlayerReference(listPlayersAction.getSelf());
             if (Main.getWaitingPlayers().contains(self)) {
                 //should only work if the player itself is also not in a game
                 ArrayList<Player> waitingPlayers = new ArrayList<>(Main.getWaitingPlayers());
@@ -162,12 +153,36 @@ public class ClientHandler implements Runnable{
         logger.info("recon");
     }
 
+    private void handleConnectAction(ConnectAction connectAction) {
+        synchronized (Main.class) {
+            Player self = getPlayerReference(connectAction.getSelf());
+            Player other = getPlayerReference(connectAction.getOther());
+
+            //figure out player colours
+            double random = Math.random();
+            if (random < 0.5){
+                self.setColor(StoneState.WHITE);
+                other.setColor(StoneState.BLACK);
+            } else {
+                self.setColor(StoneState.BLACK);
+                other.setColor(StoneState.WHITE);
+            }
+            Game game = new Game(self, other);
+            Main.getGames().add(game);
+            this.setGame(game);
+            String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
+            GameResponse response = new GameResponse(message,game.getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(game.getField().nodes()));
+            sendGameResponseToBothPlayers(response,self);
+
+        }
+    }
+
     private void sendResponse(Player player, Object response) {
-        //todo: implement sending a response also to the other player automatically
         synchronized (player) {
             try {
                 ObjectOutputStream oos = new ObjectOutputStream(player.getOutputStream());
                 oos.writeObject(response);
+                oos.flush();
                 logger.debug("sent response to player {}",player.getPlayerId());
             } catch (IOException e) {
                 logger.error("failed sending response to player {}",player.getPlayerId(),e);
@@ -175,7 +190,20 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    private String handleGameException(GameException e) {
+    /**
+     * this method sends the passed in GameResponse directly to the Player this Thread is assigned to, and sends the same response with isYourTurn negated to the other player
+     */
+    private void sendGameResponseToBothPlayers(GameResponse response, Player self) {
+        sendResponse(self,response);
+
+        Player otherPlayer = getGame().getOtherPlayer(self);
+        GameResponse responseToOtherPlayer = new GameResponse(response.getMessage(), !response.isYourTurn(),response.getNextAction(),response.getGameField());
+
+        sendResponse(otherPlayer,responseToOtherPlayer);
+
+    }
+
+    private String getGameExceptionMessage(GameException e) {
         //todo: use more specific Exceptions in order to give helpful feedback
         if (e instanceof InvalidPhaseException) {
             return "You are not allowed to perform this action in your current Game-Phase";
@@ -183,10 +211,22 @@ public class ClientHandler implements Runnable{
             return "Its not your turn to move";
         } else if (e instanceof IllegalMoveException) {
             return  "You are not allowed to move to/from this position";
-        } else return "Internal Server Error";
+        } else return "An unknown GameException occurred";
     }
     private ActionType getNextAction() {
-        //todo: figure out next action from game information
-        return null;
+        if (getGame().isNextOperationTake()) {
+            return ActionType.TAKE;
+        } else if (getGame().getNextPlayerToMove().getPhase().equals(GamePhase.PLACE)) {
+            return ActionType.PLACE;
+        } else return ActionType.MOVE;
+    }
+
+    /**
+     * should be used to get the locally stored Player Object from the passed in Player Object
+     */
+    private Player getPlayerReference(Player player) {
+        synchronized (Main.class) {
+            return Main.getPlayers().stream().filter(p -> p.equals(player)).findFirst().orElseThrow(IllegalPlayerException::new);
+        }
     }
 }
