@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 public class ClientHandler implements Runnable{
     private final Socket clientSocket;
     private Game game;
+    private Player player;
     private final Logger logger = LoggerFactory.getLogger(getClass());
     public ClientHandler(Socket clientSocket) {
         this.clientSocket = clientSocket;
@@ -31,6 +32,14 @@ public class ClientHandler implements Runnable{
 
     public void setGame(Game game) {
         this.game = game;
+    }
+
+    public Player getPlayer() {
+        return player;
+    }
+
+    public void setPlayer(Player player) {
+        this.player = player;
     }
 
     @Override
@@ -56,6 +65,7 @@ public class ClientHandler implements Runnable{
             }
         } catch (IOException e) {
             logger.error("the connection was closed",e);
+            sendDisconnectResponse();//to the other player who has not been disconnected
         } catch (ClassNotFoundException e) {
             logger.error("(de)serialization failed",e);
         } finally {
@@ -125,6 +135,7 @@ public class ClientHandler implements Runnable{
 
             Player self = new Player(name, code, StoneState.NONE ,getClientSocket().getOutputStream());
             Main.getPlayers().add(self);
+            this.setPlayer(self);
             InitialResponse initialResponse = new InitialResponse(self);
             sendResponse(self,initialResponse);
         }
@@ -283,6 +294,13 @@ public class ClientHandler implements Runnable{
     private Player getPlayerReference(Player player) {
         synchronized (Main.class) {
             return Main.getPlayers().stream().filter(p -> p.equals(player)).findFirst().orElseThrow(IllegalPlayerException::new);
+        }
+    }
+
+    private void sendDisconnectResponse() {
+        synchronized (getGame()) {
+            Player player = getGame().getOtherPlayer(getPlayer());
+            sendResponse(player, new DisconnectResponse(player));
         }
     }
 }
