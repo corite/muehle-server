@@ -1,7 +1,4 @@
-import logic.entities.Game;
-import logic.entities.GamePhase;
-import logic.entities.Player;
-import logic.entities.StoneState;
+import logic.entities.*;
 import logic.exceptions.GameException;
 import logic.exceptions.IllegalMoveException;
 import logic.exceptions.IllegalPlayerException;
@@ -53,6 +50,8 @@ public class ClientHandler implements Runnable{
                     handleGameAction((GameAction) inputObject);
                 } else  if (inputObject instanceof ReconnectAction) {
                     handleReconnectAction((ReconnectAction) inputObject);
+                } else  if (inputObject instanceof EndSessionAction) {
+                    handleEndSessionAction((EndSessionAction) inputObject);
                 } else throw new ClassNotFoundException("Read input object not supported");
             }
         } catch (IOException e) {
@@ -112,8 +111,7 @@ public class ClientHandler implements Runnable{
                     }
                 }
             }
-            GameResponse gameResponse = new GameResponse(message,getGame().getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(getGame().getField().nodes()));
-            sendGameResponseToBothPlayers(gameResponse,self);
+            sendGameResponseToBothPlayers(message);
         }
     }
 
@@ -149,8 +147,46 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    private void handleReconnectAction(ReconnectAction reconnectAction) {
-        logger.info("recon");
+    private void handleReconnectAction(ReconnectAction reconnectAction) throws IOException {
+        logger.debug("handling reconnect action");
+        if (getGame() == null) { //should only do something if the client isn't in a game
+            Player self = getPlayerReference(reconnectAction.getPlayer());
+
+            Game game = findGame(self);
+            if (game != null) {
+                this.setGame(game);
+                synchronized (game) {
+                    self.setOutputStream(getClientSocket().getOutputStream());
+                    sendGameResponseToBothPlayers("Player "+self.getPlayerId()+" has reconnected.");
+                }
+            }
+        }
+    }
+
+    private void handleEndSessionAction(EndSessionAction endSessionAction) throws IOException{
+        logger.debug("handling endSession action");
+        if (getGame() != null) {
+            synchronized (Main.class) {
+                synchronized (getGame()) {
+                    Player self = getPlayerReference(endSessionAction.getPlayer());
+                    if (self.equals(getGame().getPlayer1()) || self.equals(getGame().getPlayer2())) {
+
+                        EndSessionResponse endSessionResponse = new EndSessionResponse(self.getPlayerId() + " has ended this game");
+                        sendResponseToBothPlayers(endSessionResponse);
+
+                        //make players waiting again
+                        getGame().getPlayer1().setColor(StoneState.NONE);
+                        getGame().getPlayer2().setColor(StoneState.NONE);
+
+                        //remove game from Main datastructures
+                        Main.getGames().remove(getGame());
+                        //this removes the last local copy of the game Object. This also affects the thread of the other player
+                        this.setGame(null);
+                    }
+                }
+            }
+        }
+
     }
 
     private void handleConnectAction(ConnectAction connectAction) {
@@ -158,23 +194,44 @@ public class ClientHandler implements Runnable{
             Player self = getPlayerReference(connectAction.getSelf());
             Player other = getPlayerReference(connectAction.getOther());
 
-            //figure out player colours
-            double random = Math.random();
-            if (random < 0.5){
-                self.setColor(StoneState.WHITE);
-                other.setColor(StoneState.BLACK);
-            } else {
-                self.setColor(StoneState.BLACK);
-                other.setColor(StoneState.WHITE);
-            }
-            Game game = new Game(self, other);
-            Main.getGames().add(game);
-            this.setGame(game);
-            String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
-            GameResponse response = new GameResponse(message,game.getNextPlayerToMove().equals(self),getNextAction(),new ArrayList<>(game.getField().nodes()));
-            sendGameResponseToBothPlayers(response,self);
+            if (Main.getRequestedPairs().containsKey(other) && Main.getRequestedPairs().get(other).equals(self)) {
+                //if the other player has already requested a game with
 
+                //figure out player colours
+                double random = Math.random();
+                if (random < 0.5) {
+                    self.setColor(StoneState.WHITE);
+                    other.setColor(StoneState.BLACK);
+                } else {
+                    self.setColor(StoneState.BLACK);
+                    other.setColor(StoneState.WHITE);
+                }
+                Game game = new Game(self, other);
+                Main.getGames().add(game);
+                this.setGame(game);
+                String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
+                sendGameResponseToBothPlayers(message);
+
+                Main.getRequestedPairs().remove(self);
+                Main.getRequestedPairs().remove(other);
+            } else {
+                Main.getRequestedPairs().put(self,other);
+                //request a game with the player
+            }
         }
+    }
+
+    private Game findGame(Player player) {
+        synchronized (Main.class) {
+            for (Game game : Main.getGames()) {
+                synchronized (game) {
+                    if (player.equals(game.getPlayer1()) || player.equals(game.getPlayer2())) {
+                        return game;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void sendResponse(Player player, Object response) {
@@ -193,14 +250,13 @@ public class ClientHandler implements Runnable{
     /**
      * this method sends the passed in GameResponse directly to the Player this Thread is assigned to, and sends the same response with isYourTurn negated to the other player
      */
-    private void sendGameResponseToBothPlayers(GameResponse response, Player self) {
-        sendResponse(self,response);
-
-        Player otherPlayer = getGame().getOtherPlayer(self);
-        GameResponse responseToOtherPlayer = new GameResponse(response.getMessage(), !response.isYourTurn(),response.getNextAction(),response.getGameField());
-
-        sendResponse(otherPlayer,responseToOtherPlayer);
-
+    private void sendResponseToBothPlayers(Object response) {
+        sendResponse(getGame().getNextPlayerToMove() ,response);
+        sendResponse(getGame().getOtherPlayer(getGame().getNextPlayerToMove()) ,response);
+    }
+    private void sendGameResponseToBothPlayers(String message) {
+        GameResponse gameResponse = new GameResponse(message,getNextAction(),getGame().getNextPlayerToMove(),getGame().getOtherPlayer(getGame().getNextPlayerToMove()),new ArrayList<>(getGame().getField().nodes()));
+        sendResponseToBothPlayers(gameResponse);
     }
 
     private String getGameExceptionMessage(GameException e) {

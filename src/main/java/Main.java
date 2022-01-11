@@ -46,6 +46,10 @@ public class Main {
     public static Map<String, Integer> getNameCount() {
         return NAME_COUNT;
     }
+
+    /**
+     * the requesting player is key, the requested player is value
+     */
     public static Map<Player, Player> getRequestedPairs() {
         return REQUESTED_PAIRS;
     }
