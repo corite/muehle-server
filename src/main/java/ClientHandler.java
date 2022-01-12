@@ -189,6 +189,10 @@ public class ClientHandler implements Runnable{
                         getGame().getPlayer1().setColor(StoneState.NONE);
                         getGame().getPlayer2().setColor(StoneState.NONE);
 
+                        //reset placed stones to 0
+                        getGame().getPlayer1().setPlacedStones(0);
+                        getGame().getPlayer2().setPlacedStones(0);
+
                         //remove game from Main datastructures
                         Main.getGames().remove(getGame());
                         //this removes the last local copy of the game Object. This also affects the thread of the other player
