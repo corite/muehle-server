@@ -306,7 +306,11 @@ public class ClientHandler implements Runnable{
      */
     private Player getPlayerReference(Player player) {
         synchronized (Main.class) {
-            return Main.getPlayers().stream().filter(p -> p.equals(player)).findFirst().orElseThrow(IllegalPlayerException::new);
+            return Main.getPlayers().stream().filter(p -> {
+                synchronized (p) {
+                    return p.equals(player);
+                }
+            }).findFirst().orElseThrow(IllegalPlayerException::new);
         }
     }
 
