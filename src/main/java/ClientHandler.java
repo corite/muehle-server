@@ -195,6 +195,11 @@ public class ClientHandler implements Runnable{
                         getGame().getPlayer1().setColor(StoneState.NONE);
                         getGame().getPlayer2().setColor(StoneState.NONE);
 
+                        //make players place again
+                        getGame().getPlayer1().setPhase(GamePhase.PLACE);
+                        getGame().getPlayer2().setPhase(GamePhase.PLACE);
+
+
                         //reset placed stones to 0
                         getGame().getPlayer1().setPlacedStones(0);
                         getGame().getPlayer2().setPlacedStones(0);
