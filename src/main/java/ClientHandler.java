@@ -211,35 +211,35 @@ public class ClientHandler implements Runnable{
     }
 
     private void handleConnectAction(ConnectAction connectAction) {
-        synchronized (Main.class) {
-            Player self = getPlayerReference(connectAction.getSelf());
-            Player other = getPlayerReference(connectAction.getOther());
+        logger.debug("handling connect action");
+            synchronized (Main.class) {
+                Player self = getPlayerReference(connectAction.getSelf());
+                Player other = getPlayerReference(connectAction.getOther());
 
-            if (Main.getRequestedPairs().containsKey(other) && Main.getRequestedPairs().get(other).equals(self)) {
-                //if the other player has already requested a game with
+                if (Main.getRequestedPairs().containsKey(other) && Main.getRequestedPairs().get(other).equals(self)) {
+                    //if the other player has already requested a game
 
-                //figure out player colours
-                double random = Math.random();
-                if (random < 0.5) {
-                    self.setColor(StoneState.WHITE);
-                    other.setColor(StoneState.BLACK);
+                    //figure out player colours
+                    double random = Math.random();
+                    if (random < 0.5) {
+                        self.setColor(StoneState.WHITE);
+                        other.setColor(StoneState.BLACK);
+                    } else {
+                        self.setColor(StoneState.BLACK);
+                        other.setColor(StoneState.WHITE);
+                    }
+                    Game game = new Game(self, other);
+                    Main.getGames().add(game);
+                    this.setGame(game);
+                    String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
+                    sendGameResponseToBothPlayers(message);
+
+                    Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
                 } else {
-                    self.setColor(StoneState.BLACK);
-                    other.setColor(StoneState.WHITE);
+                    Main.getRequestedPairs().put(self, other);
+                    //request a game with the player
                 }
-                Game game = new Game(self, other);
-                Main.getGames().add(game);
-                this.setGame(game);
-                String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
-                sendGameResponseToBothPlayers(message);
-
-                Main.getRequestedPairs().remove(self);
-                Main.getRequestedPairs().remove(other);
-            } else {
-                Main.getRequestedPairs().put(self,other);
-                //request a game with the player
             }
-        }
     }
 
     private Game findGame(Player player) {
