@@ -133,8 +133,8 @@ public class ClientHandler implements Runnable{
     }
 
     private void handleInitialAction(InitialAction initialAction) throws IOException {
+        logger.debug("handling initial action");
         synchronized (Main.class) {
-            logger.debug("handling initial action");
             String name = initialAction.getName();
 
             int code = Main.getNameCount().getOrDefault(name, 0) +1;//codes will start with value 1
@@ -149,8 +149,8 @@ public class ClientHandler implements Runnable{
     }
 
     private void handleListPlayersAction(ListPlayersAction listPlayersAction) {
+        logger.debug("handling listPlayers action");
         synchronized (Main.class) {
-            logger.debug("handling listPlayers action");
             Player self = getPlayerReference(listPlayersAction.getSelf());
             if (Main.getWaitingPlayers().contains(self)) {
                 //should only work if the player itself is also not in a game
@@ -234,7 +234,11 @@ public class ClientHandler implements Runnable{
                     String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
                     sendGameResponseToBothPlayers(message);
 
-                    Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
+                    //Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
+                    Main.getRequestedPairs().remove(self);
+                    Main.getRequestedPairs().remove(other);
+                    //Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
+
                 } else {
                     Main.getRequestedPairs().put(self, other);
                     //request a game with the player
@@ -307,6 +311,7 @@ public class ClientHandler implements Runnable{
     }
 
     private void sendDisconnectResponse() {
+        logger.debug("handling disconnect response");
         if (getGame()!= null) {
             synchronized (getGame()) {
                 Player player = getGame().getOtherPlayer(getPlayer());
