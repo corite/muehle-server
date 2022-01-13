@@ -27,7 +27,25 @@ public class ClientHandler implements Runnable{
     }
 
     public Game getGame() {
-        return game;
+        if (game != null) {
+            return game;
+        } else {
+            if (getPlayer() != null) {
+                synchronized (Main.class) {
+                    Player self = getPlayer();
+                    ArrayList<Game> games = Main.getGames().stream()
+                            .filter(g -> self.equals(g.getPlayer2()) || self.equals(g.getPlayer1()))
+                            .collect(Collectors.toCollection(ArrayList::new));
+                    if (games.size() == 1) {
+                        this.setGame(games.get(0));
+                        return games.get(0);
+                    } else {
+                        logger.error("player {} was present in {} games, expected 1", self.getPlayerId(), games.size());
+                        return null;
+                    }
+                }
+            } else return null;
+        }
     }
 
     public void setGame(Game game) {
@@ -83,45 +101,34 @@ public class ClientHandler implements Runnable{
         logger.debug("handling game action");
         Player self = getPlayerReference(gameAction.getPlayer());
 
-        if (getGame() ==null ) {//game is not initialized, should only happen once
-            synchronized (Main.class) {
-                ArrayList<Game> games = Main.getGames().stream()
-                        .filter(g -> self.equals(g.getPlayer2()) || self.equals(g.getPlayer1()))
-                        .collect(Collectors.toCollection(ArrayList::new));
-                if (games.size() == 1) {
-                    this.setGame(games.get(0));
-                } else {
-                    logger.error("player {} was present in {} games, expected 1",self.getPlayerId(),games.size());
-                    return;
+        if (getGame() !=null) {
+            synchronized (this.getGame()) {
+                String message = "";
+                switch (gameAction.getType()) {
+                    case PLACE -> {
+                        try {
+                            getGame().placeStone(self, gameAction.getPlaceOrTakeCoordinate());
+                        } catch (GameException e) {
+                            message = getGameExceptionMessage(e);
+                        }
+                    }
+                    case MOVE -> {
+                        try {
+                            getGame().moveStone(self, gameAction.getFrom(), gameAction.getTo());
+                        } catch (GameException e) {
+                            message = getGameExceptionMessage(e);
+                        }
+                    }
+                    case TAKE -> {
+                        try {
+                            getGame().takeStone(self, gameAction.getPlaceOrTakeCoordinate());
+                        } catch (GameException e) {
+                            message = getGameExceptionMessage(e);
+                        }
+                    }
                 }
+                sendGameResponseToBothPlayers(message);
             }
-        }
-        synchronized (this.getGame()) {
-            String message = "";
-            switch (gameAction.getType()) {
-                case PLACE -> {
-                    try {
-                        getGame().placeStone(self,gameAction.getPlaceOrTakeCoordinate());
-                    } catch (GameException e) {
-                        message = getGameExceptionMessage(e);
-                    }
-                }
-                case MOVE -> {
-                    try {
-                        getGame().moveStone(self,gameAction.getFrom(),gameAction.getTo());
-                    } catch (GameException e) {
-                        message = getGameExceptionMessage(e);
-                    }
-                }
-                case TAKE -> {
-                    try {
-                        getGame().takeStone(self,gameAction.getPlaceOrTakeCoordinate());
-                    } catch (GameException e) {
-                        message = getGameExceptionMessage(e);
-                    }
-                }
-            }
-            sendGameResponseToBothPlayers(message);
         }
     }
 
@@ -160,18 +167,17 @@ public class ClientHandler implements Runnable{
 
     private void handleReconnectAction(ReconnectAction reconnectAction) throws IOException {
         logger.debug("handling reconnect action");
-        if (getGame() == null) { //should only do something if the client isn't in a game
-            Player self = getPlayerReference(reconnectAction.getPlayer());
+        Player self = getPlayerReference(reconnectAction.getPlayer());
 
-            Game game = findGame(self);
-            if (game != null) {
-                this.setGame(game);
-                synchronized (game) {
-                    self.setOutputStream(getClientSocket().getOutputStream());
-                    sendGameResponseToBothPlayers("Player "+self.getPlayerId()+" has reconnected.");
-                }
+        Game game = findGame(self);
+        if (game != null) {
+            this.setGame(game);
+            synchronized (game) {
+                self.setOutputStream(getClientSocket().getOutputStream());
+                sendGameResponseToBothPlayers("Player " + self.getPlayerId() + " has reconnected.");
             }
         }
+
     }
 
     private void handleEndSessionAction(EndSessionAction endSessionAction) throws IOException{
@@ -182,7 +188,7 @@ public class ClientHandler implements Runnable{
                     Player self = getPlayerReference(endSessionAction.getPlayer());
                     if (self.equals(getGame().getPlayer1()) || self.equals(getGame().getPlayer2())) {
 
-                        EndSessionResponse endSessionResponse = new EndSessionResponse(self.getPlayerId() + " has ended this game");
+                        EndSessionResponse endSessionResponse = new EndSessionResponse(self.getPlayerId() + " hat das Spiel beendet.");
                         sendResponseToBothPlayers(endSessionResponse);
 
                         //make players waiting again
@@ -275,7 +281,6 @@ public class ClientHandler implements Runnable{
     }
 
     private String getGameExceptionMessage(GameException e) {
-        //todo: use more specific Exceptions in order to give helpful feedback
         if (e instanceof InvalidPhaseException) {
             return "You are not allowed to perform this action in your current Game-Phase";
         } else if (e instanceof IllegalPlayerException) {
@@ -302,9 +307,11 @@ public class ClientHandler implements Runnable{
     }
 
     private void sendDisconnectResponse() {
-        synchronized (getGame()) {
-            Player player = getGame().getOtherPlayer(getPlayer());
-            sendResponse(player, new DisconnectResponse(player));
+        if (getGame()!= null) {
+            synchronized (getGame()) {
+                Player player = getGame().getOtherPlayer(getPlayer());
+                sendResponse(player, new DisconnectResponse(player));
+            }
         }
     }
 }
