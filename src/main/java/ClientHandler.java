@@ -1,53 +1,63 @@
 import logic.entities.*;
-import logic.exceptions.GameException;
-import logic.exceptions.IllegalMoveException;
-import logic.exceptions.IllegalPlayerException;
-import logic.exceptions.InvalidPhaseException;
+import logic.exceptions.*;
 import networking.entities.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.net.Socket;
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 
 public class ClientHandler implements Runnable{
     private final Socket clientSocket;
     private Player player;
+    private User user;
     private final Logger logger = LoggerFactory.getLogger(getClass());
     public ClientHandler(Socket clientSocket) {
         this.clientSocket = clientSocket;
     }
 
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
 
     public Socket getClientSocket() {
         return clientSocket;
     }
 
-    public Game getGame() {
-        if (getPlayer() != null) {
+
+    public Game getGame(User user) {
+        if (user != null) {
             synchronized (Main.class) {
-                Player self = getPlayer();
                 ArrayList<Game> games = Main.getGames().stream()
                         .filter(g -> {
                             synchronized (g) {
-                                return self.equals(g.getPlayer2()) || self.equals(g.getPlayer1());
+                                return user.equals(g.getPlayer2().getUser()) || user.equals(g.getPlayer1().getUser());
                             }
                         })
                         .collect(Collectors.toCollection(ArrayList::new));
                 if (games.size() == 1) {
+                    //player is only in one game, everything is fine
                     return games.get(0);
                 } else if (games.size() == 0){
-                    logger.debug("requested player {} was present in 0 games", self.getPlayerId());
+                    logger.debug("requested player {} was present in 0 games", user.getName());
                     return null;
                 } else {
-                    logger.warn("player {} was present in {} games, expected 1 or 0",self.getPlayerId(),games.size());
+                    logger.warn("player {} was present in {} games, expected 1 or 0", user.getName() ,games.size());
                     return null;
                 }
             }
         } else return null;
-
+    }
+    private Game getGame() {
+        return getGame(getPlayer().getUser());
     }
 
     public Player getPlayer() {
@@ -65,16 +75,18 @@ public class ClientHandler implements Runnable{
                 ObjectInputStream ois = new ObjectInputStream(getClientSocket().getInputStream());
 
                 Object inputObject = ois.readObject();
-                if (inputObject instanceof InitialAction) {
-                    handleInitialAction((InitialAction) inputObject);
-                } else if (inputObject instanceof ListPlayersAction) {
-                    handleListPlayersAction((ListPlayersAction) inputObject);
+                if (inputObject instanceof RegisterLoginUserAction) {
+                    handleRegisterLoginUserAction((RegisterLoginUserAction) inputObject);
+                } else if (inputObject instanceof ListUsersAction) {
+                    handleListUsersAction((ListUsersAction) inputObject);
                 } else if (inputObject instanceof ConnectAction) {
                     handleConnectAction((ConnectAction) inputObject);
                 } else if (inputObject instanceof GameAction) {
                     handleGameAction((GameAction) inputObject);
                 } else  if (inputObject instanceof ReconnectAction) {
                     handleReconnectAction((ReconnectAction) inputObject);
+                } else  if (inputObject instanceof EndGameAction) {
+                    handleEndGameAction((EndGameAction) inputObject);
                 } else  if (inputObject instanceof EndSessionAction) {
                     handleEndSessionAction((EndSessionAction) inputObject);
                 } else throw new ClassNotFoundException("Read input object not supported");
@@ -82,11 +94,12 @@ public class ClientHandler implements Runnable{
         } catch (IOException e) {
             logger.error("the connection was closed",e);
             sendDisconnectResponse();//to the other player who has not been disconnected
+            logOff(getUser());
         } catch (ClassNotFoundException e) {
             logger.error("(de)serialization failed",e);
         } finally {
             try {
-                clientSocket.close();
+                getClientSocket().close();
             } catch (IOException e) {
                 logger.error("failed to close socket",e);
             }
@@ -131,38 +144,56 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    private void handleInitialAction(InitialAction initialAction) throws IOException {
-        logger.debug("handling initial action");
+    private void handleRegisterLoginUserAction(RegisterLoginUserAction registerLoginUserAction) throws IOException {
+        logger.debug("handling registerLoginUser action");
         if (getGame() == null) {
             synchronized (Main.class) {
-                String name = initialAction.getName();
+                String name = registerLoginUserAction.getName();
+                String password = registerLoginUserAction.getPassword();
+                if (registerLoginUserAction.isRegisterAction()) {
+                    try {
+                        Main.getDatabaseHandler().createUser(name,password);
+                    } catch (SQLException e) {
+                        logger.error("failed to create user {}",name,e);
+                        //temporarily create User to send response
+                        User user = new User(name, getClientSocket().getOutputStream());
+                        RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, "Der Name ist bereits vergeben");
+                        sendResponse(user, response);
+                        return;
+                    }
+                }
+                try {
+                    Main.getDatabaseHandler().acquireUserLock(name,password);
 
-                int code = Main.getNameCount().getOrDefault(name, 0) + 1;//codes will start with value 1
-                Main.getNameCount().put(name, code);
+                    User user = new User(name, getClientSocket().getOutputStream());
+                    this.setUser(user);
+                    Main.getWaitingUsers().add(user);
 
-                Player self = new Player(name, code, StoneState.NONE, getClientSocket().getOutputStream());
-                Main.getWaitingPlayers().add(self);
-                this.setPlayer(self);
-                InitialResponse initialResponse = new InitialResponse(self);
-                sendResponse(self, initialResponse);
+                    RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, true, "");
+                    sendResponse(user, response);
+
+                } catch (SQLException e) {
+                    logger.error("failed to log in user {}",name,e);
+                }
+
             }
         }
     }
 
-    private void handleListPlayersAction(ListPlayersAction listPlayersAction) {
-        logger.debug("handling listPlayers action");
+    private void handleListUsersAction(ListUsersAction listUsersAction) {
+        logger.debug("handling listUsers action");
         if (getGame() == null) {
             synchronized (Main.class) {
-                Player self = getPlayerReference(listPlayersAction.getSelf(),null);
-                if (Main.getWaitingPlayers().contains(self)) {
+                User self = getUserReference(listUsersAction.getSelf());
+                if (Main.getWaitingUsers().contains(self)) {
                     //should only work if the player itself is also not in a game
-                    ArrayList<Player> waitingPlayers = new ArrayList<>(Main.getWaitingPlayers());
-                    waitingPlayers.remove(self); //the asking player should not be included
+                    ArrayList<User> waitingUsers = new ArrayList<>(Main.getWaitingUsers());
+                    waitingUsers.remove(self); //the asking player should not be included
 
-                    ListPlayersResponse listPlayersResponse = new ListPlayersResponse(waitingPlayers);
+                    ListUsersResponse listPlayersResponse = new ListUsersResponse(waitingUsers);
                     sendResponse(self, listPlayersResponse);
                 } else {
-                    logger.warn("could not list players because requesting player {} is already in a game", self.getPlayerId());
+                    logger.warn("could not list players because requesting player {} is already in a game", self.getName());
                 }
             }
         }
@@ -170,13 +201,15 @@ public class ClientHandler implements Runnable{
 
     private void handleReconnectAction(ReconnectAction reconnectAction) throws IOException {
         logger.debug("handling reconnect action");
-        Game game = getGame();
-        Player self = getPlayerReference(reconnectAction.getPlayer(), game);
+        Player self = reconnectAction.getPlayer();
+        Game game = getGame(self.getUser());
 
         if (game != null) {
             synchronized (game) {
                 self.setOutputStream(getClientSocket().getOutputStream());
-                sendGameResponseToBothPlayers("Player " + self.getPlayerId() + " has reconnected.", game);
+                this.setPlayer(self);
+                this.setUser(self.getUser());
+                sendGameResponseToBothPlayers("Player " + self.getName() + " has reconnected.", game);
             }
         }
 
@@ -184,38 +217,25 @@ public class ClientHandler implements Runnable{
 
     private void handleEndSessionAction(EndSessionAction endSessionAction) throws IOException{
         logger.debug("handling endSession action");
-        Game game = getGame();
-        if (game != null) {
-            synchronized (Main.class) {
-                synchronized (game) {
-                    Player self = getPlayerReference(endSessionAction.getPlayer(),game);
-                    if (self.equals(game.getPlayer1()) || self.equals(game.getPlayer2())) {
+        User user = getUserReference(endSessionAction.getUser());
+        if (!isUserInGame(user)) {
+            logOff(user);
+        } else logger.warn("user is still in a game, send EndGameAction first");
+    }
 
-                        EndSessionResponse endSessionResponse = new EndSessionResponse(self.getPlayerId() + " hat das Spiel beendet.");
-                        sendResponseToBothPlayers(endSessionResponse, game);
+    private void logOff(User user) {
+        User self = getUserReference(user);
+        synchronized (Main.class) {
+            Main.getRequestedPairs().remove(self);
+            Main.getWaitingUsers().remove(self);
 
-                        //make players waiting again
-                        game.getPlayer1().setColor(StoneState.NONE);
-                        game.getPlayer2().setColor(StoneState.NONE);
 
-                        //make players place again
-                        game.getPlayer1().setPhase(GamePhase.PLACE);
-                        game.getPlayer2().setPhase(GamePhase.PLACE);
-
-                        //reset placed stones to 0
-                        game.getPlayer1().setPlacedStones(0);
-                        game.getPlayer2().setPlacedStones(0);
-
-                        //add players to waiting players again
-                        Main.getWaitingPlayers().add(game.getPlayer1());
-                        Main.getWaitingPlayers().add(game.getPlayer2());
-
-                        //remove game from Main datastructures
-                        Main.getGames().remove(game);
-
-                    }
-                }
+            try {
+                Main.getDatabaseHandler().releaseUserLock(self.getName());
+            } catch (SQLException e) {
+                logger.error("failed to release lock on user {}", self.getName(), e);
             }
+            Thread.currentThread().interrupt();
         }
 
     }
@@ -224,66 +244,68 @@ public class ClientHandler implements Runnable{
         logger.debug("handling connect action");
         if (getGame() == null) {
             synchronized (Main.class) {
-                Player self = getPlayerReference(connectAction.getSelf(),null);
-                Player other = getPlayerReference(connectAction.getOther(),null);
+                User selfUser = getUserReference(connectAction.getSelf());
+                User otherUser = getUserReference(connectAction.getOther());
 
-                if (Main.getRequestedPairs().containsKey(other) && Main.getRequestedPairs().get(other).equals(self)) {
+                if (Main.getRequestedPairs().containsKey(otherUser) && Main.getRequestedPairs().get(otherUser).equals(selfUser)) {
                     //if the other player has already requested a game
+                    Player selfPlayer;
+                    Player otherPlayer;
 
                     //figure out player colours
                     double random = Math.random();
                     if (random < 0.5) {
-                        self.setColor(StoneState.WHITE);
-                        other.setColor(StoneState.BLACK);
+                        selfPlayer = new Player(selfUser, StoneState.WHITE);
+                        otherPlayer = new Player(otherUser, StoneState.BLACK);
                     } else {
-                        self.setColor(StoneState.BLACK);
-                        other.setColor(StoneState.WHITE);
+                        selfPlayer = new Player(selfUser, StoneState.BLACK);
+                        otherPlayer = new Player(otherUser, StoneState.WHITE);
                     }
-                    Game game = new Game(self, other);
+                    Game game = new Game(selfPlayer, otherPlayer);
                     Main.getGames().add(game);
 
                     //removing players from waiting status
-                    Main.getWaitingPlayers().remove(self);
-                    Main.getWaitingPlayers().remove(other);
+                    Main.getWaitingUsers().remove(selfUser);
+                    Main.getWaitingUsers().remove(otherUser);
 
                     //remove from requested pairs, since they are now in a game
-                    Main.getRequestedPairs().remove(self);
-                    Main.getRequestedPairs().remove(other);
+                    Main.getRequestedPairs().remove(selfUser);
+                    Main.getRequestedPairs().remove(otherUser);
 
+                    setPlayer(selfPlayer);
 
-                    String message = game.getNextPlayerToMove().getPlayerId() + " starts!";
+                    String message = game.getNextPlayerToMove().getName() + " beginnt!";
                     synchronized (game) {
                         sendGameResponseToBothPlayers(message, game);
                     }
-                    //Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
-                    //Main.getRequestedPairs().forEach((p1,p2)->System.out.println(p1.getPlayerId()+" "+p2.getPlayerId()));
 
                 } else {
-                    Main.getRequestedPairs().put(self, other);
+                    Main.getRequestedPairs().put(selfUser, otherUser);
                     //request a game with the player
                 }
             }
         }
     }
 
-    private void sendResponse(Player player, Object response) {
+    private void sendResponse(User user, Object response) {
         try {
-            ObjectOutputStream oos = new ObjectOutputStream(player.getOutputStream());
+            ObjectOutputStream oos = new ObjectOutputStream(user.getOutputStream());
             oos.writeObject(response);
             oos.flush();
-            logger.debug("sent response to player {}", player.getPlayerId());
+            logger.debug("sent response to player {}", user.getName());
         } catch (IOException e) {
-            logger.error("failed sending response to player {}", player.getPlayerId(), e);
+            logger.error("failed sending response to player {}", user.getName(), e);
         }
 
     }
+
 
     /**
      * this method sends the passed in GameResponse directly to the Player this Thread is assigned to, and sends the same response with isYourTurn negated to the other player
      */
     private void sendResponseToBothPlayers(Object response, Game game) {
-        sendResponse(game.getNextPlayerToMove(), response);
-        sendResponse(game.getOtherPlayer(game.getNextPlayerToMove()), response);
+        sendResponse(game.getNextPlayerToMove().getUser(), response);
+        sendResponse(game.getOtherPlayer(game.getNextPlayerToMove()).getUser(), response);
     }
     private void sendGameResponseToBothPlayers(String message, Game game) {
         GameResponse gameResponse = new GameResponse(message, getNextAction(game), game.getNextPlayerToMove(), game.getOtherPlayer(game.getNextPlayerToMove()), new ArrayList<>(game.getField().nodes()));
@@ -322,9 +344,26 @@ public class ClientHandler implements Runnable{
                 } else throw new IllegalPlayerException();
             }
         } else {
-            synchronized (Main.class) {
-                return Main.getWaitingPlayers().stream().filter(p -> p.equals(player)).findFirst().orElseThrow(IllegalPlayerException::new);
-            }
+            throw new IllegalArgumentException();
+        }
+    }
+
+    private boolean isUserInGame(User user) {
+        return getGame(user) != null;
+    }
+
+    private User getUserReference(User user) {
+        synchronized (Main.class) {
+            List<User> users =Main.getWaitingUsers().stream()
+                    .filter(user::equals)
+                    .toList();
+
+            if (users.size() == 0) {
+                throw new IllegalUserException();
+            } else if (users.size() > 1) {
+                logger.error("more than one user found, this should never happen");
+                throw new IllegalUserException();
+            } else return users.get(0);
         }
     }
 
@@ -334,9 +373,28 @@ public class ClientHandler implements Runnable{
         if (game!= null) {
             synchronized (game) {
                 Player player = game.getOtherPlayer(getPlayer());
-                sendResponse(player, new DisconnectResponse(player));
+                sendResponse(player.getUser(), new DisconnectResponse(player));
             }
         }
+    }
+
+    private void handleEndGameAction(EndGameAction endGameAction) {
+        Game game = getGame();
+
+        synchronized (Main.class) {
+            synchronized (game) {
+                Player player1 = game.getPlayer1();
+                Player player2 = game.getPlayer2();
+
+                Main.getWaitingUsers().add(player1.getUser());
+                Main.getWaitingUsers().add(player2.getUser());
+
+                Main.getGames().remove(game);
+
+                sendDisconnectResponse();
+            }
+        }
+
     }
 
 }
