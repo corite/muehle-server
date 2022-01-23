@@ -93,11 +93,19 @@ public class ClientHandler implements Runnable{
             }
         } catch (IOException e) {
             logger.error("the connection was closed",e);
-            sendDisconnectResponse();//to the other player who has not been disconnected
-            logOff(getUser());
         } catch (ClassNotFoundException e) {
             logger.error("(de)serialization failed",e);
         } finally {
+            Game game = getGame();
+            if (game != null) {
+                if (getGame()!= null) {
+                    sendDisconnectResponse(game);//to the other player who has not been disconnected
+                }
+            }
+            logOff(getUser());
+
+
+
             try {
                 getClientSocket().close();
             } catch (IOException e) {
@@ -367,19 +375,17 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    private void sendDisconnectResponse() {
+    private void sendDisconnectResponse(Game game) {
         logger.debug("handling disconnect response");
-        Game game = getGame();
-        if (game!= null) {
-            synchronized (game) {
-                Player player = game.getOtherPlayer(getPlayer());
-                sendResponse(player.getUser(), new DisconnectResponse(player));
-            }
+        synchronized (game) {
+            sendResponse(game.getOtherPlayer(getPlayer()).getUser(), new DisconnectResponse(getPlayer()));
         }
+
     }
 
     private void handleEndGameAction(EndGameAction endGameAction) {
         Game game = getGame();
+        Player self = getPlayerReference(endGameAction.getSelf(), game);
 
         synchronized (Main.class) {
             synchronized (game) {
@@ -391,7 +397,8 @@ public class ClientHandler implements Runnable{
 
                 Main.getGames().remove(game);
 
-                sendDisconnectResponse();
+                EndGameResponse endGameResponse = new EndGameResponse("Spieler "+self.getName()+" hat das Spiel beendet");
+                sendResponse(game.getOtherPlayer(self).getUser(), endGameResponse);
             }
         }
 

@@ -44,9 +44,11 @@ public class DatabaseHandler {
 
         ResultSet resultSet = preparedStatement.executeQuery();
         if (!resultSet.next()) {
+            logger.debug("acquiring lock for user '{}' failed, likely because the credentials were wrong or because the user is already logged in",name);
             throw new SQLException();
         }
         updateOnlineStatus(name, true);
+        logger.debug("lock was acquired for user '{}'",name);
     }
 
     public void releaseUserLock(String name) throws SQLException {
@@ -59,9 +61,12 @@ public class DatabaseHandler {
 
         ResultSet resultSet = preparedStatement.executeQuery();
         if (!resultSet.next()) {
+            logger.warn("releasing lock for user '{}' failed, likely because the user wasn't locked in the first place",name);
             throw new SQLException();
         }
         updateOnlineStatus(name, false);
+        logger.debug("lock was released for user '{}'",name);
+
     }
 
     private boolean hasUser(String name) throws SQLException{
@@ -75,24 +80,17 @@ public class DatabaseHandler {
         return false;
     }
 
-    private boolean hasUser(String name, String password) throws SQLException{
-        String sql = "SELECT name FROM users WHERE name = ? AND password = ?";
-        PreparedStatement preparedStatement = prepareStatement(sql, name, password);
-
-        ResultSet resultSet = preparedStatement.executeQuery();
-        if (resultSet.next()) {
-            return true;
-        }
-        return false;
-    }
-
     public void createUser(String name, String password) throws SQLException {
-        if (!hasUser(name, password)) {
+        if (!hasUser(name)) {
             String sql = "INSERT INTO users(name,password,online) VALUES(?,?,FALSE)";
             PreparedStatement preparedStatement = prepareStatement(sql, name, password);
 
             preparedStatement.executeUpdate();
-        } else throw new SQLException();
+            logger.debug("successfully created new user with name '{}'",name);
+        } else {
+            logger.warn("failed to create user with name '{}' because this name is already taken",name);
+            throw new SQLException();
+        }
     }
 
 
@@ -132,6 +130,7 @@ public class DatabaseHandler {
         preparedStatement.setString(2, name);
 
         preparedStatement.executeUpdate();
+        logger.debug("user '{}' has now online status={}",name,online);
     }
 
 
