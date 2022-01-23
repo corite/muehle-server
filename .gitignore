@@ -2,3 +2,4 @@
 /.idea/*
 /build/*
 standardOut.log
+src/main/resources/muehle.db
