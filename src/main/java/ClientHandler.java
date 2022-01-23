@@ -100,9 +100,7 @@ public class ClientHandler implements Runnable{
         } finally {
             Game game = getGame();
             if (game != null) {
-                if (getGame()!= null) {
-                    sendDisconnectResponse(game);//to the other player who has not been disconnected
-                }
+                sendDisconnectResponse(game);//to the other player who has not been disconnected
             }
             logOff(getUser());
 
@@ -160,22 +158,15 @@ public class ClientHandler implements Runnable{
             synchronized (Main.class) {
                 String name = registerLoginUserAction.getName();
                 String password = registerLoginUserAction.getPassword();
-                if (registerLoginUserAction.isRegisterAction()) {
-                    try {
-                        Main.getDatabaseHandler().createUser(name,password);
-                    } catch (SQLException e) {
-                        logger.error("failed to create user {}",name,e);
-                        //temporarily create User to send response
-                        User user = new User(name, getClientSocket().getOutputStream());
-                        RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, "Der Name ist bereits vergeben");
-                        sendResponse(user, response);
-                        return;
-                    }
-                }
-                try {
-                    Main.getDatabaseHandler().acquireUserLock(name,password);
+                User user = new User(name, getClientSocket().getOutputStream());
 
-                    User user = new User(name, getClientSocket().getOutputStream());
+                try {
+                    if (registerLoginUserAction.isRegisterAction()) {
+                        Main.getDatabaseHandler().createUser(name, password);
+                    }
+
+                    Main.getDatabaseHandler().acquireUserLock(name, password);
+
                     this.setUser(user);
                     Main.getWaitingUsers().add(user);
 
@@ -183,7 +174,9 @@ public class ClientHandler implements Runnable{
                     sendResponse(user, response);
 
                 } catch (SQLException e) {
-                    logger.error("failed to log in user {}",name,e);
+                    logger.error("failed to log in user {}", name, e);
+                    RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, "");
+                    sendResponse(user,response);
                 }
 
             }
@@ -242,8 +235,11 @@ public class ClientHandler implements Runnable{
 
             try {
                 Main.getDatabaseHandler().releaseUserLock(self.getName());
+                getClientSocket().close();
             } catch (SQLException e) {
                 logger.error("failed to release lock on user {}", self.getName(), e);
+            } catch (IOException e) {
+                logger.error("failed to close socket",e);
             }
             Thread.currentThread().interrupt();
         }

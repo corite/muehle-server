@@ -14,6 +14,8 @@ public class DatabaseHandler {
 
             //establishing the users table
             createUsersTableIfNecessary();
+            //setting all users initially to offline
+            setAllUsersOffline();
         } catch (SQLException e) {
             logger.error("failed to initialize the database",e);
             throw new RuntimeException("failed to initialize the database");
@@ -131,6 +133,16 @@ public class DatabaseHandler {
 
         preparedStatement.executeUpdate();
         logger.debug("user '{}' has now online status={}",name,online);
+    }
+    private void setAllUsersOffline() throws SQLException {
+        String sql = "SELECT name FROM users";
+        Statement statement = getConnection().createStatement();
+        ResultSet resultSet = statement.executeQuery(sql);
+
+        while (resultSet.next()) {
+            updateOnlineStatus(resultSet.getString("name"), false);
+        }
+
     }
 
 
