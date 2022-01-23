@@ -59,7 +59,7 @@ public class ClientHandler implements Runnable{
     private Game getGame() {
         if (getPlayer() != null) {
             return getGame(getPlayer().getUser());
-        } else getGame(null);
+        } else return getGame(null);
     }
 
     public Player getPlayer() {
