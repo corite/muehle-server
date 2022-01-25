@@ -166,12 +166,13 @@ public class ClientHandler implements Runnable{
                 String name = registerLoginUserAction.getName();
                 String password = registerLoginUserAction.getPassword();
                 User user = new User(name, getClientSocket().getOutputStream());
-
+                String failMessage = "";
                 try {
                     if (registerLoginUserAction.isRegisterAction()) {
+                        failMessage = "Registrierung fehlgeschlagen, dieser Name ist bereits vergeben.";
                         Main.getDatabaseHandler().createUser(name, password);
                     }
-
+                    failMessage = "Login fehlgeschlagen, das Passwort ist falsch oder der Nutzer ist bereits eingeloggt.";
                     Main.getDatabaseHandler().acquireUserLock(name, password);
 
                     this.setUser(user);
@@ -182,7 +183,7 @@ public class ClientHandler implements Runnable{
 
                 } catch (SQLException e) {
                     logger.error("failed to log in user {}", name, e);
-                    RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, "");
+                    RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, failMessage);
                     sendResponse(user,response);
                 }
 
