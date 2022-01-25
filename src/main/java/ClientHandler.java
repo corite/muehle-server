@@ -11,9 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+
 public class ClientHandler implements Runnable{
     private final Socket clientSocket;
-    private Player player;
     private User user;
     private final Logger logger = LoggerFactory.getLogger(getClass());
     public ClientHandler(Socket clientSocket) {
@@ -57,18 +57,25 @@ public class ClientHandler implements Runnable{
         } else return null;
     }
     private Game getGame() {
-        if (getPlayer() != null) {
-            return getGame(getPlayer().getUser());
-        } else return getGame(null);
+        if (this.getUser() != null) {
+            return getGame(this.getUser());
+        } else return null;
     }
 
-    public Player getPlayer() {
-        return player;
+    private Player getPlayer() {
+        return getPlayer(this.getUser());
+    }
+    private Player getPlayer(User user) {
+        Game game = getGame(user);
+        if (game != null) {
+            synchronized (game) {
+                if (game.getPlayer1().getUser().equals(user)) {
+                    return game.getPlayer1();
+                } else return game.getPlayer2();
+            }
+        } else return null;
     }
 
-    public void setPlayer(Player player) {
-        this.player = player;
-    }
 
     @Override
     public void run() {
@@ -210,7 +217,6 @@ public class ClientHandler implements Runnable{
         if (game != null) {
             synchronized (game) {
                 self.setOutputStream(getClientSocket().getOutputStream());
-                this.setPlayer(self);
                 this.setUser(self.getUser());
                 sendGameResponseToBothPlayers("Player " + self.getName() + " has reconnected.", game);
             }
@@ -277,8 +283,6 @@ public class ClientHandler implements Runnable{
                     //remove from requested pairs, since they are now in a game
                     Main.getRequestedPairs().remove(selfUser);
                     Main.getRequestedPairs().remove(otherUser);
-
-                    setPlayer(selfPlayer);
 
                     String message = game.getNextPlayerToMove().getName() + " beginnt!";
                     synchronized (game) {
@@ -358,6 +362,9 @@ public class ClientHandler implements Runnable{
         return getGame(user) != null;
     }
 
+    /**
+     * this is necessary when working with a user object from an Action from a client, because the passed in object doesn't have an OutputStream
+     */
     private User getUserReference(User user) {
         synchronized (Main.class) {
             List<User> users =Main.getWaitingUsers().stream()
