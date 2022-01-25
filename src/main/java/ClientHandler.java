@@ -172,7 +172,7 @@ public class ClientHandler implements Runnable{
                         failMessage = "Registrierung fehlgeschlagen, dieser Name ist bereits vergeben.";
                         Main.getDatabaseHandler().createUser(name, password);
                     }
-                    failMessage = "Login fehlgeschlagen, das Passwort ist falsch oder der Nutzer ist bereits eingeloggt.";
+                    failMessage = "Login fehlgeschlagen, Username/Passwort ist falsch oder der Nutzer ist bereits eingeloggt.";
                     Main.getDatabaseHandler().acquireUserLock(name, password);
 
                     this.setUser(user);
