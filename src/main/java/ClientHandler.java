@@ -232,8 +232,8 @@ public class ClientHandler implements Runnable{
         } else logger.warn("user is still in a game, send EndGameAction first");
     }
 
-    private void logOff(User user) {
-        User self = getUserReference(user);
+    private void logOff(User self) {
+
         synchronized (Main.class) {
             Main.getRequestedPairs().remove(self);
             Main.getWaitingUsers().remove(self);
