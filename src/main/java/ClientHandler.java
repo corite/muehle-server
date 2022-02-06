@@ -181,6 +181,7 @@ public class ClientHandler implements Runnable{
                     RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, true, "");
                     sendResponse(user, response);
 
+                    notifyAllWaitingUsers();
                 } catch (SQLException e) {
                     logger.error("failed to log in user {}", name, e);
                     RegisterLoginUserResponse response = new RegisterLoginUserResponse(user, false, failMessage);
@@ -238,7 +239,7 @@ public class ClientHandler implements Runnable{
         synchronized (Main.class) {
             Main.getRequestedPairs().remove(self);
             Main.getWaitingUsers().remove(self);
-
+            notifyAllWaitingUsers();
 
             try {
                 Main.getDatabaseHandler().releaseUserLock(self.getName());
@@ -289,6 +290,7 @@ public class ClientHandler implements Runnable{
                     synchronized (game) {
                         sendGameResponseToBothPlayers(message, game);
                     }
+                    notifyAllWaitingUsers();
 
                 } else {
                     Main.getRequestedPairs().put(selfUser, otherUser);
@@ -408,8 +410,22 @@ public class ClientHandler implements Runnable{
                 sendResponse(player2.getUser(), endGameResponse);
 
             }
+            notifyAllWaitingUsers();
         }
 
+    }
+
+    private void notifyAllWaitingUsers() {
+        synchronized (Main.class) {
+            List<User> waitingUsers = Main.getWaitingUsers();
+            for (User waitingUser : waitingUsers) {
+                List<User> waitingUsersWithoutSelf = new ArrayList<>(waitingUsers);
+                waitingUsersWithoutSelf.remove(waitingUser);
+
+                ListUsersResponse response = new ListUsersResponse(new ArrayList<>(waitingUsersWithoutSelf));
+                sendResponse(waitingUser, response);
+            }
+        }
     }
 
 }
