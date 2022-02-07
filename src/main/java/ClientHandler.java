@@ -405,7 +405,7 @@ public class ClientHandler implements Runnable{
 
                 Main.getGames().remove(game);
 
-                EndGameResponse endGameResponse = new EndGameResponse("Spieler "+self.getName()+" hat das Spiel beendet");
+                EndGameResponse endGameResponse = new EndGameResponse(self.getUser(), "Spieler "+self.getName()+" hat das Spiel beendet");
                 sendResponse(player1.getUser(), endGameResponse);
                 sendResponse(player2.getUser(), endGameResponse);
 
