@@ -108,9 +108,12 @@ public class ClientHandler implements Runnable{
             Game game = getGame();
             if (game != null) {
                 sendDisconnectResponse(game);//to the other player who has not been disconnected
+                EndGameAction endGameAction = new EndGameAction(getPlayer(getUser()));
+                handleEndGameAction(endGameAction);
             }
-            logOff(getUser());
-
+            if (getUser() != null) {
+                logOff(getUser());
+            }
 
 
             try {
@@ -231,6 +234,8 @@ public class ClientHandler implements Runnable{
         User user = getUserReference(endSessionAction.getUser());
         if (!isUserInGame(user)) {
             logOff(user);
+            getClientSocket().close();
+            Thread.currentThread().interrupt();
         } else logger.warn("user is still in a game, send EndGameAction first");
     }
 
@@ -243,13 +248,9 @@ public class ClientHandler implements Runnable{
 
             try {
                 Main.getDatabaseHandler().releaseUserLock(self.getName());
-                getClientSocket().close();
             } catch (SQLException e) {
                 logger.error("failed to release lock on user {}", self.getName(), e);
-            } catch (IOException e) {
-                logger.error("failed to close socket",e);
             }
-            Thread.currentThread().interrupt();
         }
 
     }
