@@ -392,22 +392,24 @@ public class ClientHandler implements Runnable{
         Game game = getGame();
         Player self = getPlayerReference(endGameAction.getSelf(), game);
 
-        synchronized (Main.class) {
-            synchronized (game) {
-                Player player1 = game.getPlayer1();
-                Player player2 = game.getPlayer2();
+        if (game != null) {
+            synchronized (Main.class) {
+                synchronized (game) {
+                    Player player1 = game.getPlayer1();
+                    Player player2 = game.getPlayer2();
 
-                Main.getWaitingUsers().add(player1.getUser());
-                Main.getWaitingUsers().add(player2.getUser());
+                    Main.getWaitingUsers().add(player1.getUser());
+                    Main.getWaitingUsers().add(player2.getUser());
 
-                Main.getGames().remove(game);
+                    Main.getGames().remove(game);
 
-                EndGameResponse endGameResponse = new EndGameResponse(self.getUser(), "Spieler "+self.getName()+" hat das Spiel beendet");
-                sendResponse(player1.getUser(), endGameResponse);
-                sendResponse(player2.getUser(), endGameResponse);
+                    EndGameResponse endGameResponse = new EndGameResponse(self.getUser(), "Spieler " + self.getName() + " hat das Spiel beendet");
+                    sendResponse(player1.getUser(), endGameResponse);
+                    sendResponse(player2.getUser(), endGameResponse);
 
+                }
+                notifyAllWaitingUsers();
             }
-            notifyAllWaitingUsers();
         }
 
     }
