@@ -32,7 +32,6 @@ public class ClientHandler implements Runnable{
         return clientSocket;
     }
 
-
     public Game getGame(User user) {
         if (user != null) {
             synchronized (Main.class) {
@@ -56,6 +55,7 @@ public class ClientHandler implements Runnable{
             }
         } else return null;
     }
+
     private Game getGame() {
         if (this.getUser() != null) {
             return getGame(this.getUser());
@@ -65,6 +65,7 @@ public class ClientHandler implements Runnable{
     private Player getPlayer() {
         return getPlayer(this.getUser());
     }
+
     private Player getPlayer(User user) {
         Game game = getGame(user);
         if (game != null) {
@@ -106,14 +107,8 @@ public class ClientHandler implements Runnable{
             logger.error("(de)serialization failed",e);
         } finally {
             Game game = getGame();
-            if (game != null) {
-                sendDisconnectResponse(game);//to the other player who has not been disconnected
-                EndGameAction endGameAction = new EndGameAction(getPlayer(getUser()));
-                handleEndGameAction(endGameAction);
-            }
-            if (getUser() != null) {
-                logOff(getUser());
-            }
+
+            endGameAndLogOff();
 
 
             try {
@@ -124,7 +119,6 @@ public class ClientHandler implements Runnable{
             Thread.currentThread().interrupt();
         }
     }
-
 
     private void handleGameAction(GameAction gameAction) {
         logger.debug("handling game action");
@@ -244,13 +238,13 @@ public class ClientHandler implements Runnable{
         synchronized (Main.class) {
             Main.getRequestedPairs().remove(self);
             Main.getWaitingUsers().remove(self);
-            notifyAllWaitingUsers();
 
             try {
                 Main.getDatabaseHandler().releaseUserLock(self.getName());
             } catch (SQLException e) {
                 logger.error("failed to release lock on user {}", self.getName(), e);
             }
+            notifyAllWaitingUsers();
         }
 
     }
@@ -321,6 +315,7 @@ public class ClientHandler implements Runnable{
         sendResponse(game.getNextPlayerToMove().getUser(), response);
         sendResponse(game.getOtherPlayer(game.getNextPlayerToMove()).getUser(), response);
     }
+
     private void sendGameResponseToBothPlayers(String message, Game game) {
         GameResponse gameResponse = new GameResponse(message, getNextAction(game), game.getNextPlayerToMove(), game.getOtherPlayer(game.getNextPlayerToMove()), new ArrayList<>(game.getField().nodes()));
         sendResponseToBothPlayers(gameResponse, game);
@@ -393,6 +388,7 @@ public class ClientHandler implements Runnable{
     }
 
     private void handleEndGameAction(EndGameAction endGameAction) {
+        logger.debug("handling endGame action");
         Game game = getGame();
         Player self = getPlayerReference(endGameAction.getSelf(), game);
 
@@ -425,6 +421,29 @@ public class ClientHandler implements Runnable{
 
                 ListUsersResponse response = new ListUsersResponse(new ArrayList<>(waitingUsersWithoutSelf));
                 sendResponse(waitingUser, response);
+            }
+        }
+    }
+
+    private void endGameAndLogOff() {
+        logger.info("ending game and logging off");
+        Game game = getGame();
+
+        synchronized (Main.class) {
+            if (game != null) {
+                synchronized (game) {
+                    Player remainingPlayer = getUser().equals(game.getPlayer1().getUser()) ? game.getPlayer2() : game.getPlayer1();
+
+                    Main.getWaitingUsers().add(remainingPlayer.getUser());
+
+                    Main.getGames().remove(game);
+
+                    EndGameResponse endGameResponse = new EndGameResponse(getUser(), "Spieler " + getUser().getName() + " hat das Spiel beendet");
+                    sendResponse(remainingPlayer.getUser(), endGameResponse);
+                }
+            }
+            if (getUser() != null) {
+                logOff(getUser());
             }
         }
     }

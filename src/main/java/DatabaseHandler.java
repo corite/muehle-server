@@ -76,10 +76,7 @@ public class DatabaseHandler {
         PreparedStatement preparedStatement = prepareStatement(sql, name);
 
         ResultSet resultSet = preparedStatement.executeQuery();
-        if (resultSet.next()) {
-            return true;
-        }
-        return false;
+        return resultSet.next();
     }
 
     public void createUser(String name, String password) throws SQLException {
