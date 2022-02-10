@@ -390,9 +390,9 @@ public class ClientHandler implements Runnable{
     private void handleEndGameAction(EndGameAction endGameAction) {
         logger.debug("handling endGame action");
         Game game = getGame();
-        Player self = getPlayerReference(endGameAction.getSelf(), game);
 
         if (game != null) {
+            Player self = getPlayerReference(endGameAction.getSelf(), game);
             synchronized (Main.class) {
                 synchronized (game) {
                     Player player1 = game.getPlayer1();
